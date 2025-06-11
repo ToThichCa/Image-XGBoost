@@ -172,7 +172,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
-*.png
 /dataset
 /images
 /record
@@ -180,6 +179,5 @@ cython_debug/
 frames
 dataset_input
 .DS_Store
-*.csv
 *.pth
 
