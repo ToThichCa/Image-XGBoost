@@ -18,9 +18,6 @@ import psutil
 import time
 import csv
 
-monitoring = True
-monitor_data = []
-
 def preprocess_data(df, fit=False, scaler=None, pca=None):
     label_col = df['Label'] if 'Label' in df.columns else None
 
@@ -78,13 +75,30 @@ def load_pca_configuration(df):
         pickle.dump(pca, open('pca.pkl', 'wb'))
 
     return X_pca, label_col, scaler, pca, feature_names
+stop_event = threading.Event()  # Dùng event để dừng thread
+monitor_data = []
 
+# Kiểm tra GPU
+try:
+    from py3nvml import py3nvml
+    py3nvml.nvmlInit()
+    gpu_handle = py3nvml.nvmlDeviceGetHandleByIndex(0)
+    has_gpu = True
+except:
+    has_gpu = False
+
+# --- Hàm theo dõi hệ thống ---
 def monitor_system():
-    while monitoring:
+    while not stop_event.is_set():
         cpu_percent = psutil.cpu_percent()
         memory = psutil.virtual_memory()
         ram_used_mb = memory.used / (1024 * 1024)
-        monitor_data.append((cpu_percent, ram_used_mb))
+
+        gpu_power = 0
+        if has_gpu:
+            gpu_power = py3nvml.nvmlDeviceGetPowerUsage(gpu_handle) / 1000
+
+        monitor_data.append((cpu_percent, ram_used_mb, gpu_power))
         time.sleep(1)
 
 if __name__ == "__main__":
@@ -143,17 +157,18 @@ if __name__ == "__main__":
     print("\n-------------------- Bắt đầu huấn luyện với mô hình XGBoost -------------------- ")
     t = threading.Thread(target=monitor_system)
     t.start()
+    time.sleep(5)
     t0 = time.time()
     xgb_classifier.fit(X_train, y_train,
                     eval_set=[(X_test, y_test)], # Tập validation để theo dõi hiệu suất
                     early_stopping_rounds=20,    # Dừng nếu không có cải thiện trong 20 vòng liên tiếp
                     verbose=False)               # Tắt hiển thị chi tiết từng vòng huấn luyện
-    
-    monitoring = False
+    time.sleep(5)
+    stop_event.set()
     t.join()
     with open('log_train_xgb.csv', mode="w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["cpu_percent", "ram_used_mb"])
+        writer.writerow(["cpu_percent", "ram_used_mb","power consumption"])
         writer.writerows(monitor_data)
     print("-------------------- Kết thúc quá trình huấn luyện mô hình vf à lưu mô hình --------------------")
     xgb_classifier.save_model("xgb_model.json")  # Hoặc .bin cũng được
