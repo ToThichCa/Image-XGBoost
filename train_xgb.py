@@ -17,6 +17,7 @@ import threading
 import psutil
 import time
 import csv
+import subprocess
 
 def preprocess_data(df, fit=False, scaler=None, pca=None):
     label_col = df['Label'] if 'Label' in df.columns else None
@@ -78,15 +79,6 @@ def load_pca_configuration(df):
 stop_event = threading.Event()  # Dùng event để dừng thread
 monitor_data = []
 
-# Kiểm tra GPU
-try:
-    from py3nvml import py3nvml
-    py3nvml.nvmlInit()
-    gpu_handle = py3nvml.nvmlDeviceGetHandleByIndex(0)
-    has_gpu = True
-except:
-    has_gpu = False
-
 # --- Hàm theo dõi hệ thống ---
 def monitor_system():
     while not stop_event.is_set():
@@ -94,12 +86,16 @@ def monitor_system():
         memory = psutil.virtual_memory()
         ram_used_mb = memory.used / (1024 * 1024)
 
-        gpu_power = 0
-        if has_gpu:
-            gpu_power = py3nvml.nvmlDeviceGetPowerUsage(gpu_handle) / 1000
+        # GPU (Jetson - dùng tegrastats)
+        result = subprocess.check_output(['tegrastats'], timeout=1).decode()
+        # Trích xuất GR3D_FREQ (% sử dụng GPU)
+        gr3d_freq = "N/A"
+        for part in result.split():
+            if "GR3D_FREQ" in part:
+                gr3d_freq = part.split("@")[1].replace("%", "")
+                break
 
-        monitor_data.append((cpu_percent, ram_used_mb, gpu_power))
-        time.sleep(1)
+        monitor_data.append((cpu_percent, ram_used_mb, gr3d_freq))
 
 if __name__ == "__main__":
     df = pd.read_csv('combined_shuffled_dataset_cleaned.csv')
